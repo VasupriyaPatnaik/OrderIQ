@@ -8,23 +8,25 @@ import pandas as pd
 import io
 import os
 import time
+import ast
 import google.generativeai as genai
 from dotenv import load_dotenv
-import ast  # ✅ safer alternative to eval
 
-# Load .env variables
+# Load environment variables
 load_dotenv()
 
-# API Key Setup
+# Gemini API Key
 GOOGLE_API_KEY = os.getenv("GEMINI_API_KEY")
 if not GOOGLE_API_KEY:
-    raise ValueError("❌ GEMINI_API_KEY not found in environment.")
+    raise ValueError("❌ GEMINI_API_KEY not found in .env")
+
 genai.configure(api_key=GOOGLE_API_KEY)
 model = genai.GenerativeModel("gemini-1.5-pro")
 
+# FastAPI App Initialization
 app = FastAPI()
 
-# CORS Setup
+# Enable CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -32,36 +34,37 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
+# Schema
 class TextData(BaseModel):
     input_text: str
 
-# Helper to generate unique Excel filenames
+# Track latest Excel file
+latest_file_path = ""
+
+# Excel writer helper
 def save_to_excel(data: list, folder="outputs"):
     os.makedirs(folder, exist_ok=True)
     timestamp = time.strftime("%Y%m%d-%H%M%S")
-    filename = f"{folder}/structured_output_{timestamp}.xlsx"
-    df = pd.DataFrame(data)
-    df.to_excel(filename, index=False)
-    return filename
+    filepath = f"{folder}/structured_output_{timestamp}.xlsx"
+    pd.DataFrame(data).to_excel(filepath, index=False)
+    return filepath
 
-# Store latest generated file path
-latest_file_path = ""
-
+# Text API
 @app.post("/extract_from_text")
 def extract_from_text(data: TextData):
     global latest_file_path
     prompt = f"""
-    You are an intelligent assistant. Extract structured information from the message below.
+    You are a smart assistant. Extract structured info from the following message.
 
-    Extract the following fields:
-    - product name
+    Required fields:
+    - product
     - quantity
     - shipping address
 
-    Output as a JSON array in this format:
+    Output format (JSON):
     [
-        {{"product": "Amul Butter", "quantity": "10", "address": "Hyderabad"}},
-        ...
+      {{"product": "Amul Butter", "quantity": "10", "address": "Hyderabad"}},
+      ...
     ]
 
     Message:
@@ -70,13 +73,21 @@ def extract_from_text(data: TextData):
     try:
         response = model.generate_content(prompt)
         result_text = response.text.strip()
-        result = ast.literal_eval(result_text)  # ✅ Safe eval
+        print("🧠 Gemini raw response:", result_text)
+
+        result = ast.literal_eval(result_text)
+        print("✅ Parsed result:", result)
 
         latest_file_path = save_to_excel(result)
-        return {"message": "Text extraction successful", "data": result, "file": latest_file_path}
+        return {
+            "message": "Text extraction successful",
+            "data": result,
+            "download_url": "/download_excel"
+        }
     except Exception as e:
-        return {"error": "Text extraction failed", "details": str(e)} 
+        return {"error": "Text extraction failed", "details": str(e)}
 
+# Image API
 @app.post("/extract_from_image")
 async def extract_from_image(file: UploadFile = File(...)):
     global latest_file_path
@@ -85,25 +96,35 @@ async def extract_from_image(file: UploadFile = File(...)):
         image = Image.open(io.BytesIO(image_bytes))
 
         prompt = """
-        Analyze this image containing a product order message.
-        Extract product names, quantities, and shipping address.
+        Analyze the fax image and extract:
+        - product name
+        - quantity
+        - shipping address
 
-        Format output as:
+        Format:
         [
-            { "product": "Parle-G", "quantity": "20", "address": "Chennai" },
-            ...
+          { "product": "Parle-G", "quantity": "20", "address": "Chennai" },
+          ...
         ]
         """
 
         response = model.generate_content([prompt, image])
         result_text = response.text.strip()
+        print("🖼️ Gemini image response:", result_text)
+
         result = ast.literal_eval(result_text)
+        print("✅ Parsed image result:", result)
 
         latest_file_path = save_to_excel(result)
-        return {"message": "Image extraction successful", "data": result, "file": latest_file_path}
+        return {
+            "message": "Image extraction successful",
+            "data": result,
+            "download_url": "/download_excel"
+        }
     except Exception as e:
         return {"error": "Image extraction failed", "details": str(e)}
 
+# Excel Download API
 @app.get("/download_excel")
 def download_excel():
     if latest_file_path and os.path.exists(latest_file_path):
