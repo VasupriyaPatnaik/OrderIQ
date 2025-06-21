@@ -3,18 +3,21 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import pytesseract
 from PIL import Image
-import openai
 import pandas as pd
 import io
-from dotenv import load_dotenv
 import os
+from openai import OpenAI
+from dotenv import load_dotenv
 
+# Load environment variables
 load_dotenv()
-openai.api_key = os.getenv("OPENAI_API_KEY")
+api_key = os.getenv("OPENAI_API_KEY") 
+
+# Use the OpenAI v1 client
+client = OpenAI(api_key=api_key)
 
 app = FastAPI()
 
-# Allow frontend to talk to backend (CORS)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -22,31 +25,36 @@ app.add_middleware(
     allow_headers=["*"]
 )
 
-# Input model for plain text
 class TextData(BaseModel):
     input_text: str
 
 @app.post("/extract_from_text")
 def extract_from_text(data: TextData):
     prompt = f"""
-    Extract the product name, quantity, and shipping address from the message below.
-    Return as a JSON array like:
+    Extract product name, quantity, and shipping address from the following order message.
+    Return JSON in this format:
     [
-      {{"product": "", "quantity": "", "address": ""}},
+      {{"product": "Amul Butter", "quantity": "10", "address": "Address here"}},
       ...
     ]
 
     Message: {data.input_text}
     """
-    response = openai.ChatCompletion.create(
+
+    response = client.chat.completions.create(
         model="gpt-4",
         messages=[{"role": "user", "content": prompt}],
         temperature=0
     )
-    result = eval(response.choices[0].message.content)
-    df = pd.DataFrame(result)
-    df.to_excel("outputs/structured_output.xlsx", index=False)
-    return {"message": "Extraction successful", "data": result}
+
+    content = response.choices[0].message.content
+    try:
+        result = eval(content)
+        df = pd.DataFrame(result)
+        df.to_excel("outputs/structured_output.xlsx", index=False)
+        return {"message": "Extraction successful", "data": result}
+    except Exception as e:
+        return {"error": "Failed to parse LLM response", "raw": content, "exception": str(e)}
 
 @app.post("/extract_from_image")
 def extract_from_image(file: UploadFile = File(...)):
