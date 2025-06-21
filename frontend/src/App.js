@@ -15,7 +15,8 @@ function App() {
       const res = await axios.post("http://localhost:8000/extract_from_text", {
         input_text: textInput,
       });
-      setOutput(res.data.data);
+      console.log("Text API Response:", res.data);
+      setOutput(res.data?.data || []);
     } catch (err) {
       setErrorMsg('Failed to extract from text.');
     } finally {
@@ -34,7 +35,8 @@ function App() {
       const formData = new FormData();
       formData.append("file", file);
       const res = await axios.post("http://localhost:8000/extract_from_image", formData);
-      setOutput(res.data.data);
+      console.log("Image API Response:", res.data);
+      setOutput(res.data?.data || []);
     } catch (err) {
       setErrorMsg('Failed to extract from image.');
     } finally {
@@ -77,7 +79,14 @@ function App() {
           onChange={(e) => setTextInput(e.target.value)}
         />
         <button className="btn btn-primary mt-2" onClick={handleTextSubmit} disabled={loading}>
-          {loading ? "Extracting..." : "Extract from Text"}
+          {loading ? (
+            <>
+              <span className="spinner-border spinner-border-sm me-2"></span>
+              Extracting...
+            </>
+          ) : (
+            'Extract from Text'
+          )}
         </button>
       </div>
 
@@ -90,13 +99,20 @@ function App() {
           onChange={(e) => setFile(e.target.files[0])}
         />
         <button className="btn btn-success mt-2" onClick={handleFileUpload} disabled={loading}>
-          {loading ? "Processing..." : "Extract from Image"}
+          {loading ? (
+            <>
+              <span className="spinner-border spinner-border-sm me-2"></span>
+              Processing...
+            </>
+          ) : (
+            'Extract from Image'
+          )}
         </button>
       </div>
 
       {errorMsg && <div className="alert alert-danger">{errorMsg}</div>}
 
-      {output.length > 0 && (
+      {Array.isArray(output) && output.length > 0 && (
         <div className="mt-5">
           <h4 className="mb-3">✅ Extracted Data</h4>
           <table className="table table-bordered">
