@@ -1,0 +1,21 @@
+# Python - Backend
+__pycache__/
+*.pyc
+venv/
+.env
+
+# Node - Frontend
+node_modules/
+build/
+.env.local
+.env.development
+.env.production
+
+# Output files
+outputs/
+*.xlsx
+
+# VS Code & OS junk
+.vscode/
+.DS_Store
+Thumbs.db
