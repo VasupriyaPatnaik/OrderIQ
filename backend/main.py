@@ -42,9 +42,9 @@ def extract_from_text(data: TextData):
     """
 
     response = client.chat.completions.create(
-        model="gpt-4",
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
+    model="gpt-3.5-turbo",   
+    messages=[{"role": "user", "content": prompt}],
+    temperature=0
     )
 
     content = response.choices[0].message.content
