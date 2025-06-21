@@ -1,6 +1,6 @@
 fastapi
-uvicorn
-openai
+uvicorn[standard]
+google-generativeai
 pytesseract
 pillow
 pandas
