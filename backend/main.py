@@ -56,8 +56,15 @@ def extract_from_text(batch: BatchTextData):
     try:
         for text in batch.input_texts:
             prompt = f"""
-You are a structured data assistant. Extract details in the following format:
+You are a structured data assistant. Extract all order items and customer details from the following message. The message may contain multiple products.
 
+⚠️ Extraction rules:
+- "product": only the product name (❌ do not include quantity or unit)
+- "quantity": include both the number and unit (e.g., "10 packs", "2 bottles")
+- "delivery_date": must be a specific date like "25th July 2025" (❌ not "Monday", "tomorrow", etc.)
+- If any field is missing in the input, assign it the value "unknown".
+
+Return a JSON array with the following structure:
 [
   {{
     "product": "...",
@@ -66,13 +73,11 @@ You are a structured data assistant. Extract details in the following format:
     "customer_name": "...",
     "phone": "...",
     "company": "...",
-    "delivery_date": "...",  # MUST be a specific date like "25th July 2025"
+    "delivery_date": "...",
     "payment_terms": "...",
     "remarks": "..."
   }}
 ]
-
-👉 If any field is missing in the input, assign it the value "unknown".
 
 Extract from:
 {text}
@@ -122,24 +127,30 @@ async def extract_from_image(file: UploadFile = File(...)):
         image = Image.open(io.BytesIO(image_bytes))
 
         prompt = """
-Extract structured information from the fax image.
+You are an intelligent assistant. Extract all order items and customer details from the fax image.
 
-Return as:
+⚠️ Extraction Rules:
+- One row per product (even if multiple products are listed together).
+- "product": only the product name (❌ do not include quantity or unit)
+- "quantity": must include number and unit (e.g., "4 bottles")
+- "delivery_date": must be a full specific date like "25th July 2025" (❌ avoid "tomorrow", "next week")
+- If any field is missing, assign it the value "unknown".
+
+Return as a **JSON array**, with each row like:
 [
   {
-    "product": "...",
-    "quantity": "...",
-    "shipping_address": "...",
-    "customer_name": "...",
-    "phone": "...",
-    "company": "...",
-    "delivery_date": "...",
-    "payment_terms": "...",
-    "remarks": "..."
-  }
+    "product": "Fanta",
+    "quantity": "4 bottles",
+    "shipping_address": "Flat 204, Sunrise Apartments, Sector 21, Noida",
+    "customer_name": "Priya Sharma",
+    "phone": "9876543210",
+    "company": "FreshMart Retail Pvt Ltd",
+    "delivery_date": "25th July 2025",
+    "payment_terms": "Online Transfer",
+    "remarks": "Deliver between 10 AM to 5 PM"
+  },
+  ...
 ]
-
-Fill "unknown" for any missing values. Date must be specific like "25th July 2025".
 """
 
         response = model.generate_content([prompt, image])
