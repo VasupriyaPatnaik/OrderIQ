@@ -12,13 +12,19 @@ function App() {
     setLoading(true);
     setErrorMsg('');
     try {
+      const inputLines = textInput
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0);
+
       const res = await axios.post("http://localhost:8000/extract_from_text", {
-        input_text: textInput,
+        input_texts: inputLines,
       });
       console.log("Text API Response:", res.data);
       setOutput(res.data?.data || []);
     } catch (err) {
-      setErrorMsg('Failed to extract from text.');
+      console.error(err);
+      setErrorMsg('❌ Failed to extract from text.');
     } finally {
       setLoading(false);
     }
@@ -26,7 +32,7 @@ function App() {
 
   const handleFileUpload = async () => {
     if (!file) {
-      setErrorMsg("Please select a file first.");
+      setErrorMsg("⚠️ Please select a file first.");
       return;
     }
     setLoading(true);
@@ -38,7 +44,8 @@ function App() {
       console.log("Image API Response:", res.data);
       setOutput(res.data?.data || []);
     } catch (err) {
-      setErrorMsg('Failed to extract from image.');
+      console.error(err);
+      setErrorMsg('❌ Failed to extract from image.');
     } finally {
       setLoading(false);
     }
@@ -55,12 +62,13 @@ function App() {
       const url = window.URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = url;
-      link.setAttribute("download", "structured_output.xlsx");
+      link.setAttribute("download", "OrderIQ_Output.xlsx");
       document.body.appendChild(link);
       link.click();
       link.remove();
     } catch (err) {
-      setErrorMsg('Failed to download Excel file.');
+      console.error(err);
+      setErrorMsg('❌ Failed to download Excel file.');
     }
   };
 
@@ -73,8 +81,8 @@ function App() {
         <label className="form-label fw-semibold">📤 Paste Order Text</label>
         <textarea
           className="form-control"
-          rows={4}
-          placeholder="e.g. Send 5 packs of Amul Butter to Mumbai"
+          rows={6}
+          placeholder={`e.g.\nHi, send 6 cartons of Bru Coffee to Hyderabad by 25th July 2025.\nCustomer: Ravi | Phone: 9876543210 | Company: ABC Corp | Payment: COD | Remarks: Urgent`}
           value={textInput}
           onChange={(e) => setTextInput(e.target.value)}
         />
@@ -114,26 +122,40 @@ function App() {
 
       {Array.isArray(output) && output.length > 0 && (
         <div className="mt-5">
-          <h4 className="mb-3">✅ Extracted Data</h4>
-          <table className="table table-bordered">
-            <thead className="table-light">
-              <tr>
-                <th>Product</th>
-                <th>Quantity</th>
-                <th>Address</th>
-              </tr>
-            </thead>
-            <tbody>
-              {output.map((item, i) => (
-                <tr key={i}>
-                  <td>{item.product}</td>
-                  <td>{item.quantity}</td>
-                  <td>{item.address}</td>
+          <h4 className="mb-3">✅ Extracted Order Details</h4>
+          <div className="table-responsive">
+            <table className="table table-bordered">
+              <thead className="table-light">
+                <tr>
+                  <th>Product</th>
+                  <th>Quantity</th>
+                  <th>Shipping Address</th>
+                  <th>Customer Name</th>
+                  <th>Phone</th>
+                  <th>Company</th>
+                  <th>Delivery Date</th>
+                  <th>Payment Terms</th>
+                  <th>Remarks</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-          <button className="btn btn-outline-primary" onClick={handleDownloadExcel}>
+              </thead>
+              <tbody>
+                {output.map((item, i) => (
+                  <tr key={i}>
+                    <td>{item.product}</td>
+                    <td>{item.quantity}</td>
+                    <td>{item.shipping_address}</td>
+                    <td>{item.customer_name}</td>
+                    <td>{item.phone}</td>
+                    <td>{item.company}</td>
+                    <td>{item.delivery_date}</td>
+                    <td>{item.payment_terms}</td>
+                    <td>{item.remarks}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          <button className="btn btn-outline-primary mt-3" onClick={handleDownloadExcel}>
             ⬇️ Download Excel
           </button>
         </div>
