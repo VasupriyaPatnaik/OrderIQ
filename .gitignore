@@ -1,21 +1,30 @@
+# ===============================
 # Python - Backend
+# ===============================
 __pycache__/
 *.pyc
 venv/
 .env
+secrets/         # 🔒 Prevent committing API keys (e.g., vision_key.json)
 
+# ===============================
 # Node - Frontend
+# ===============================
 node_modules/
 build/
 .env.local
 .env.development
 .env.production
 
+# ===============================
 # Output files
+# ===============================
 outputs/
 *.xlsx
 
-# VS Code & OS junk
+# ===============================
+# IDEs & OS Junk
+# ===============================
 .vscode/
 .DS_Store
 Thumbs.db
