@@ -10,6 +10,7 @@ import time
 import ast
 import google.generativeai as genai
 from dotenv import load_dotenv
+from google.cloud import vision  # ✅ Added for OCR
 
 # Load environment variables
 load_dotenv()
@@ -46,6 +47,18 @@ def save_to_excel(data: list, folder="outputs"):
     filepath = f"{folder}/OrderIQ_Output_{timestamp}.xlsx"
     pd.DataFrame(data).to_excel(filepath, index=False)
     return filepath
+
+# ✅ Helper for Google Vision OCR (for handwritten/typed text)
+def extract_text_from_image_google_vision(image_bytes):
+    client = vision.ImageAnnotatorClient()
+    image = vision.Image(content=image_bytes)
+
+    response = client.text_detection(image=image)
+    texts = response.text_annotations
+
+    if texts:
+        return texts[0].description.strip()
+    return ""
 
 # POST: Text extraction (Batch)
 @app.post("/extract_from_text")
@@ -91,7 +104,6 @@ Extract from:
 
             try:
                 parsed = ast.literal_eval(raw_output)
-                # Make sure every item has all keys, fill "unknown" if missing
                 required_keys = [
                     "product", "quantity", "shipping_address",
                     "customer_name", "phone", "company",
@@ -118,16 +130,22 @@ Extract from:
     except Exception as e:
         return {"error": "Text extraction failed", "details": str(e)}
 
-# POST: Image extraction
+# ✅ POST: Image extraction (with OCR support)
 @app.post("/extract_from_image")
 async def extract_from_image(file: UploadFile = File(...)):
     global latest_file_path
     try:
         image_bytes = await file.read()
-        image = Image.open(io.BytesIO(image_bytes))
 
-        prompt = """
-You are an intelligent assistant. Extract all order items and customer details from the fax image.
+        # OCR using Google Vision API (typed or handwritten)
+        ocr_text = extract_text_from_image_google_vision(image_bytes)
+
+        if not ocr_text:
+            return {"error": "OCR failed. Could not extract content from image."}
+
+        # Now prompt Gemini using extracted text
+        prompt = f"""
+You are an intelligent assistant. Extract all order items and customer details from the text below.
 
 ⚠️ Extraction Rules:
 - One row per product (even if multiple products are listed together).
@@ -136,24 +154,11 @@ You are an intelligent assistant. Extract all order items and customer details f
 - "delivery_date": must be a full specific date like "25th July 2025" (❌ avoid "tomorrow", "next week")
 - If any field is missing, assign it the value "unknown".
 
-Return as a **JSON array**, with each row like:
-[
-  {
-    "product": "Fanta",
-    "quantity": "4 bottles",
-    "shipping_address": "Flat 204, Sunrise Apartments, Sector 21, Noida",
-    "customer_name": "Priya Sharma",
-    "phone": "9876543210",
-    "company": "FreshMart Retail Pvt Ltd",
-    "delivery_date": "25th July 2025",
-    "payment_terms": "Online Transfer",
-    "remarks": "Deliver between 10 AM to 5 PM"
-  },
-  ...
-]
+Return as a JSON array:
+{ocr_text}
 """
 
-        response = model.generate_content([prompt, image])
+        response = model.generate_content(prompt)
         result_text = response.text.strip()
 
         if result_text.startswith("```"):
