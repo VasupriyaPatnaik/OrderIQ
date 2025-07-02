@@ -145,16 +145,38 @@ async def extract_from_image(file: UploadFile = File(...)):
 
         # Now prompt Gemini using extracted text
         prompt = f"""
-You are an intelligent assistant. Extract all order items and customer details from the text below.
+You are an intelligent assistant. Extract all **order items and all customer details** from the text below.
 
 ⚠️ Extraction Rules:
 - One row per product (even if multiple products are listed together).
 - "product": only the product name (❌ do not include quantity or unit)
 - "quantity": must include number and unit (e.g., "4 bottles")
-- "delivery_date": must be a full specific date like "25th July 2025" (❌ avoid "tomorrow", "next week")
-- If any field is missing, assign it the value "unknown".
+- **"shipping_address"**: include flat/house/street/city as a single string
+- "customer_name": extract from context if not explicitly mentioned (e.g., Krishna Traders)
+- **"company"**: use business name if mentioned (like Krishna Traders)
+- "phone": extract numeric value, even if part of "Contact:"
+- "delivery_date": must be a full specific date like "25th July 2025"
+- **"payment_terms"**: e.g., COD, Online, Credit
+- **"remarks"**: special delivery notes or instructions
 
-Return as a JSON array:
+If any field is missing, assign it the value "unknown".
+
+Return a JSON array like:
+[
+  {{
+    "product": "...",
+    "quantity": "...",
+    "shipping_address": "...",
+    "customer_name": "...",
+    "phone": "...",
+    "company": "...",
+    "delivery_date": "...",
+    "payment_terms": "...",
+    "remarks": "..."
+  }}
+]
+
+Text to process:
 {ocr_text}
 """
 
