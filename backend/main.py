@@ -4,10 +4,10 @@ from pydantic import BaseModel
 from fastapi.responses import FileResponse
 from PIL import Image
 import pandas as pd
-import io
 import os
 import time
-import ast
+import json
+import re
 import google.generativeai as genai
 from dotenv import load_dotenv
 from google.cloud import vision  # ✅ Added for OCR
@@ -52,13 +52,48 @@ def save_to_excel(data: list, folder="outputs"):
 def extract_text_from_image_google_vision(image_bytes):
     client = vision.ImageAnnotatorClient()
     image = vision.Image(content=image_bytes)
-
     response = client.text_detection(image=image)
     texts = response.text_annotations
-
     if texts:
         return texts[0].description.strip()
     return ""
+
+# Helper: Parse AI output robustly
+def parse_gemini_output(raw_output):
+    raw_output = raw_output.strip()
+
+    # Remove code fences
+    if raw_output.startswith("```"):
+        raw_output = raw_output.strip("`").strip("json").strip()
+
+    # Extract JSON array using regex
+    match = re.search(r"\[.*\]", raw_output, re.DOTALL)
+    if match:
+        raw_output = match.group(0)
+
+    # Replace single quotes with double quotes
+    raw_output = raw_output.replace("'", '"')
+
+    # Attempt JSON parsing
+    try:
+        data = json.loads(raw_output)
+    except Exception as e:
+        print("⚠️ JSON parsing failed:", e)
+        print("RAW AI OUTPUT:\n", raw_output)
+        data = []
+
+    # Ensure all required keys exist
+    required_keys = [
+        "product", "quantity", "shipping_address",
+        "customer_name", "phone", "company",
+        "delivery_date", "payment_terms", "remarks"
+    ]
+    for item in data:
+        for key in required_keys:
+            if key not in item or not item[key]:
+                item[key] = "unknown"
+
+    return data
 
 # POST: Text extraction (Batch)
 @app.post("/extract_from_text")
@@ -69,57 +104,32 @@ def extract_from_text(batch: BatchTextData):
     try:
         for text in batch.input_texts:
             prompt = f"""
-You are a structured data assistant. Extract all order items and customer details from the following message. The message may contain multiple products.
+You are a structured data assistant. Extract all orders from the text below. 
 
 ⚠️ Extraction rules:
-- "product": only the product name (❌ do not include quantity or unit)
-- "quantity": include both the number and unit (e.g., "10 packs", "2 bottles")
-- "delivery_date": must be a specific date like "25th July 2025" (❌ not "Monday", "tomorrow", etc.)
-- If any field is missing in the input, assign it the value "unknown".
+- Only return a JSON array. Do NOT include explanations or extra text.
+- For each order, extract:
+    - "product": product name only (no quantity/unit)
+    - "quantity": number + unit (e.g., "5 boxes")
+    - "delivery_date": full date (e.g., "25th July 2025"), not "tomorrow"
+    - "shipping_address": full address
+    - "customer_name": name of customer
+    - "phone": phone number if available
+    - "company": company name if mentioned
+    - "payment_terms": payment method (COD, Credit card, PayPal, etc.)
+    - "remarks": any notes
+- If any field is missing, set value to "unknown".
 
-Return a JSON array with the following structure:
-[
-  {{
-    "product": "...",
-    "quantity": "...",
-    "shipping_address": "...",
-    "customer_name": "...",
-    "phone": "...",
-    "company": "...",
-    "delivery_date": "...",
-    "payment_terms": "...",
-    "remarks": "..."
-  }}
-]
-
-Extract from:
+Text to process:
 {text}
+
+Respond ONLY with a JSON array.
 """
+
             response = model.generate_content(prompt)
             raw_output = response.text.strip()
-
-            # Handle code block wrapping
-            if raw_output.startswith("```"):
-                raw_output = raw_output.strip("`").strip("json").strip()
-
-            try:
-                parsed = ast.literal_eval(raw_output)
-                required_keys = [
-                    "product", "quantity", "shipping_address",
-                    "customer_name", "phone", "company",
-                    "delivery_date", "payment_terms", "remarks"
-                ]
-                for item in parsed:
-                    for key in required_keys:
-                        if key not in item:
-                            item[key] = "unknown"
-                    final_results.append(item)
-            except Exception as parse_err:
-                return {
-                    "error": "Invalid format received from model",
-                    "raw_output": raw_output,
-                    "details": str(parse_err)
-                }
+            parsed = parse_gemini_output(raw_output)
+            final_results.extend(parsed)
 
         latest_file_path = save_to_excel(final_results)
         return {
@@ -127,83 +137,54 @@ Extract from:
             "data": final_results,
             "download_url": "/download_excel"
         }
+
     except Exception as e:
         return {"error": "Text extraction failed", "details": str(e)}
 
-# ✅ POST: Image extraction (with OCR support)
+# POST: Image extraction (with OCR support)
 @app.post("/extract_from_image")
 async def extract_from_image(file: UploadFile = File(...)):
     global latest_file_path
     try:
         image_bytes = await file.read()
-
-        # OCR using Google Vision API (typed or handwritten)
         ocr_text = extract_text_from_image_google_vision(image_bytes)
 
         if not ocr_text:
             return {"error": "OCR failed. Could not extract content from image."}
 
-        # Now prompt Gemini using extracted text
         prompt = f"""
-You are an intelligent assistant. Extract all **order items and all customer details** from the text below.
+You are an intelligent assistant. Extract all order items and customer details.
 
-⚠️ Extraction Rules:
-- One row per product (even if multiple products are listed together).
-- "product": only the product name (❌ do not include quantity or unit)
-- "quantity": must include number and unit (e.g., "4 bottles")
-- **"shipping_address"**: include flat/house/street/city as a single string
-- "customer_name": extract from context if not explicitly mentioned (e.g., Krishna Traders)
-- **"company"**: use business name if mentioned (like Krishna Traders)
-- "phone": extract numeric value, even if part of "Contact:"
-- "delivery_date": must be a full specific date like "25th July 2025"
-- **"payment_terms"**: e.g., COD, Online, Credit
-- **"remarks"**: special delivery notes or instructions
-
-If any field is missing, assign it the value "unknown".
-
-Return a JSON array like:
-[
-  {{
-    "product": "...",
-    "quantity": "...",
-    "shipping_address": "...",
-    "customer_name": "...",
-    "phone": "...",
-    "company": "...",
-    "delivery_date": "...",
-    "payment_terms": "...",
-    "remarks": "..."
-  }}
-]
+⚠️ Extraction rules:
+- One row per product
+- "product": product name only
+- "quantity": number + unit
+- "shipping_address": full address
+- "customer_name": extract from context if not explicit
+- "company": use business name if mentioned
+- "phone": numeric only
+- "delivery_date": full specific date
+- "payment_terms": COD, Online, Credit, etc.
+- "remarks": special delivery instructions
+- If any field missing, set to "unknown"
 
 Text to process:
 {ocr_text}
+
+Respond ONLY with a JSON array.
 """
 
         response = model.generate_content(prompt)
         result_text = response.text.strip()
+        parsed = parse_gemini_output(result_text)
 
-        if result_text.startswith("```"):
-            result_text = result_text.strip("`").strip("json").strip()
-
-        result = ast.literal_eval(result_text)
-
-        required_keys = [
-            "product", "quantity", "shipping_address",
-            "customer_name", "phone", "company",
-            "delivery_date", "payment_terms", "remarks"
-        ]
-        for item in result:
-            for key in required_keys:
-                if key not in item:
-                    item[key] = "unknown"
-
-        latest_file_path = save_to_excel(result)
+        latest_file_path = save_to_excel(parsed)
         return {
             "message": "Image extraction successful",
-            "data": result,
+            "data": parsed,
             "download_url": "/download_excel"
         }
+
     except Exception as e:
         return {"error": "Image extraction failed", "details": str(e)}
 
