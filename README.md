@@ -40,7 +40,7 @@ OrderIQ/
 ## Tech Stack
 
 ### Frontend
-- **React** – UI library for interactive components
+- **React(JSX)** – UI components built using HTML structure and JavaScript logic
 - **Axios** – HTTP client for API communication
 - **Bootstrap/CSS** – Styling and responsive design
 
